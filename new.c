@@ -289,6 +289,6 @@ int main() {
     sem_destroy(&empty);
     sem_destroy(&full);
     pthread_mutex_destroy(&mutex);
-    printf("hello world");
+    
     return 0;
 }

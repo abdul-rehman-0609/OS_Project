@@ -196,8 +196,54 @@ void print_stock_status() {
     log_stock_status(normal_count, urgent_count);
 }
 
+// Main function
+int main() {
+    srand(time(NULL));
+    signal(SIGINT, handle_sigint);
+
+    printf("Enter number of suppliers: ");
+    while (scanf("%d", &NUM_PRODUCERS) != 1 || NUM_PRODUCERS <= 0) {
+        printf("Invalid input. Enter a positive integer for number of suppliers: ");
+        while (getchar() != '\n'); // clear input buffer
+    }
+
+    printf("Enter number of retailers: ");
+    while (scanf("%d", &NUM_CONSUMERS) != 1 || NUM_CONSUMERS <= 0) {
+        printf("Invalid input. Enter a positive integer for number of retailers: ");
+        while (getchar() != '\n'); // clear input buffer
+    }
+
+    sem_init(&empty, 0, BUFFER_SIZE);
+    sem_init(&full, 0, 0);
+    pthread_mutex_init(&mutex, NULL);
+
+    pthread_t prod_threads[NUM_PRODUCERS], cons_threads[NUM_CONSUMERS], user_thread;
+    
+    for (int i = 0; i < NUM_PRODUCERS; i++)
+        pthread_create(&prod_threads[i], NULL, supplier, (void*)(long)i);
+
+    for (int i = 0; i < NUM_CONSUMERS; i++)
+        pthread_create(&cons_threads[i], NULL, retailer, (void*)(long)i);
+
+    //pthread_create(&user_thread, NULL, user_input, NULL);
+
+    for (int i = 0; i < NUM_PRODUCERS; i++)
+        pthread_join(prod_threads[i], NULL);
+
+    for (int i = 0; i < NUM_CONSUMERS; i++)
+        pthread_join(cons_threads[i], NULL);
+
+    //pthread_join(user_thread, NULL);
+
+    sem_destroy(&empty);
+    sem_destroy(&full);
+    pthread_mutex_destroy(&mutex);
+    
+    return 0;
+}
+
 // User input thread function
-void* user_input(void* arg) {
+/*void* user_input(void* arg) {
     char command[10];
     while (!stop_simulation) {
         printf("\nEnter command: [add, remove, status, exit] ");
@@ -251,44 +297,4 @@ void* user_input(void* arg) {
         }
     }
     return NULL;
-}
-
-// Main function
-int main() {
-    srand(time(NULL));
-    signal(SIGINT, handle_sigint);
-
-    printf("Enter number of suppliers: ");
-    scanf("%d", &NUM_PRODUCERS);
-
-    printf("Enter number of retailers: ");
-    scanf("%d", &NUM_CONSUMERS);
-
-    sem_init(&empty, 0, BUFFER_SIZE);
-    sem_init(&full, 0, 0);
-    pthread_mutex_init(&mutex, NULL);
-
-    pthread_t prod_threads[NUM_PRODUCERS], cons_threads[NUM_CONSUMERS], user_thread;
-
-    for (int i = 0; i < NUM_PRODUCERS; i++)
-        pthread_create(&prod_threads[i], NULL, supplier, (void*)(long)i);
-
-    for (int i = 0; i < NUM_CONSUMERS; i++)
-        pthread_create(&cons_threads[i], NULL, retailer, (void*)(long)i);
-
-    pthread_create(&user_thread, NULL, user_input, NULL);
-
-    for (int i = 0; i < NUM_PRODUCERS; i++)
-        pthread_join(prod_threads[i], NULL);
-
-    for (int i = 0; i < NUM_CONSUMERS; i++)
-        pthread_join(cons_threads[i], NULL);
-
-    pthread_join(user_thread, NULL);
-
-    sem_destroy(&empty);
-    sem_destroy(&full);
-    pthread_mutex_destroy(&mutex);
-    
-    return 0;
-}
+}*/

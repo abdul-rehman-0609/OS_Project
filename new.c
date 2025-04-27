@@ -48,17 +48,12 @@ int total_consumed = 0;
 
 // Function prototypes
 void refresh_screen();
-void log_event(const char* event, int id, int item, const char* type);
-void log_stock_status(int normal_count, int urgent_count);
-void log_command(const char* command, int item, int priority);
 void log_error(const char* error);
 void update_statistics(int produced, int consumed);
 void* supplier(void* arg);
 void* retailer(void* arg);
-void stock_alert();
 void add_product(int item, int priority);
 int extract_product();
-void print_stock_status();
 void print_final_statistics();  
 void open_log_file();
 void close_log_file();
@@ -133,19 +128,6 @@ void sigint_handler(int sig) {
     exit(0);
 }
 
-// Logging functions
-void log_event(const char* event, int id, int item, const char* type) {
-    //printf("[LOG] %s: Thread %d %s item -> %d\n", event, id, type, item);
-}
-
-void log_stock_status(int normal_count, int urgent_count) {
-    //printf("[LOG] Current stock: Normal items = %d, Urgent items = %d\n", normal_count, urgent_count);
-}
-
-void log_command(const char* command, int item, int priority) {
-    //printf("[LOG] Command: %s item %d with priority %d\n", command, item, priority);
-}
-
 void log_error(const char* error) {
     printf("[ERROR] %s\n", error);
 }
@@ -194,7 +176,7 @@ void* supplier(void* arg) {
         pthread_mutex_lock(&mutex);
 
         add_product(item, priority);
-        //log_event("Produced", id, item, priority ? "(PRIORITY)" : "");
+
         snprintf(last_action, sizeof(last_action), "Supplier %d produced item %d %s", id, item, priority ? "(PRIORITY)" : "");
         if (simulation_running) {
             refresh_screen();
@@ -203,8 +185,6 @@ void* supplier(void* arg) {
         log_event_file("Produced", id, item, priority ? "(PRIORITY)" : "");
 
         update_statistics(1, 0);
-        //printf("Producer %d produced %d %s\n", id, item, priority ? "(PRIORITY)" : "");
-        stock_alert();
 
         simulation_count--;
 
@@ -233,7 +213,7 @@ void* retailer(void* arg) {
 
         // Extract product from buffer
         int item = extract_product();
-        //log_event("Consumed", id, item, "");
+        
         snprintf(last_action, sizeof(last_action), "Consumer %d consumed item %d", id, item);
         snprintf(last_action, sizeof(last_action), "Retailer %d consumed item %d", id, item);
         if (simulation_running) {
@@ -249,8 +229,6 @@ void* retailer(void* arg) {
         }
 
         update_statistics(0, 1);
-        //printf("Consumer %d consumed %d\n", id, item);
-        stock_alert();
 
         simulation_count--;
         pthread_mutex_unlock(&mutex);
@@ -295,25 +273,6 @@ int extract_product() {
         out = (out + 1) % BUFFER_SIZE;
     }
     return item;
-}
-
-// Stock alert function
-void stock_alert() {
-    int normal_count = (in - out + BUFFER_SIZE) % BUFFER_SIZE;
-    int total_stock = normal_count + urgent_count;
-
-    if (total_stock <= LOW_STOCK_THRESHOLD) {
-        //printf("[STOCK ALERT] LOW stock: %d items in warehouse!\n", total_stock);
-    } else if (total_stock >= HIGH_STOCK_THRESHOLD) {
-        //printf("[STOCK ALERT] HIGH stock: %d items in warehouse!\n", total_stock);
-    }
-    log_stock_status(normal_count, urgent_count);
-}
-
-// Print stock status
-void print_stock_status() {
-    int normal_count = (in - out + BUFFER_SIZE) % BUFFER_SIZE;
-    log_stock_status(normal_count, urgent_count);
 }
 
 // Main function

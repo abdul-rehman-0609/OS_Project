@@ -80,10 +80,7 @@ void refresh_screen() {
         mvprintw(11, 2, "[STOCK ALERT] HIGH stock: %d items!", total_stock);
     }
 
-    // Final statistics (can be shown at the bottom)
-    mvprintw(13, 2, "Final statistics:");
-    mvprintw(14, 2, "Total Produced: %d, Total Consumed: %d", total_produced, total_consumed);
-    mvprintw(15, 2, "Final stock status: Normal items = %d, Urgent items = %d",
+    mvprintw(13, 2, "Current stock status: Normal items = %d, Urgent items = %d",
              (in - out + BUFFER_SIZE) % BUFFER_SIZE, urgent_count);
 
     refresh();
@@ -167,7 +164,15 @@ void log_event_file(const char* event, int id, int item, const char* type) {
 // Producer thread function
 void* supplier(void* arg) {
     int id = (long)arg;
-    while (simulation_count > 0) {
+    while (1) {
+        pthread_mutex_lock(&mutex);
+        if (simulation_count <= 0) {
+            pthread_mutex_unlock(&mutex);
+            break;
+        }
+        simulation_count--;
+        pthread_mutex_unlock(&mutex);
+
         int item = rand() % 100;
         int priority = rand() % MAX_PRIORITY;
         sleep(1);
@@ -177,7 +182,7 @@ void* supplier(void* arg) {
 
         add_product(item, priority);
 
-        snprintf(last_action, sizeof(last_action), "Supplier %d produced item %d %s", id, item, priority ? "(PRIORITY)" : "");
+        snprintf(last_action, sizeof(last_action), "Supplier %d produced item -> [%d] %s", id, item, priority ? "(PRIORITY)" : "");
         if (simulation_running) {
             refresh_screen();
         }
@@ -185,8 +190,6 @@ void* supplier(void* arg) {
         log_event_file("Produced", id, item, priority ? "(PRIORITY)" : "");
 
         update_statistics(1, 0);
-
-        simulation_count--;
 
         pthread_mutex_unlock(&mutex);
         sem_post(&full);
@@ -199,7 +202,15 @@ void* supplier(void* arg) {
 // Consumer thread function
 void* retailer(void* arg) {
     int id = (long)arg;
-    while (simulation_count > 0) {
+    while (1) {
+        pthread_mutex_lock(&mutex);
+        if (simulation_count <= 0) {
+            pthread_mutex_unlock(&mutex);
+            break;
+        }
+        simulation_count--;
+        pthread_mutex_unlock(&mutex);
+        
         sem_wait(&full);
 
         pthread_mutex_lock(&mutex);
@@ -214,8 +225,8 @@ void* retailer(void* arg) {
         // Extract product from buffer
         int item = extract_product();
         
-        snprintf(last_action, sizeof(last_action), "Consumer %d consumed item %d", id, item);
-        snprintf(last_action, sizeof(last_action), "Retailer %d consumed item %d", id, item);
+
+        snprintf(last_action, sizeof(last_action), "Retailer %d consumed item -> [%d]", id, item);
         if (simulation_running) {
             refresh_screen();
         }
@@ -230,7 +241,6 @@ void* retailer(void* arg) {
 
         update_statistics(0, 1);
 
-        simulation_count--;
         pthread_mutex_unlock(&mutex);
         sem_post(&empty);
         

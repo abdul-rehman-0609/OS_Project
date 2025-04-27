@@ -166,7 +166,6 @@ void* supplier(void* arg) {
             pthread_mutex_unlock(&mutex);
             break;
         }
-        simulation_count--;
         pthread_mutex_unlock(&mutex);
 
         int item = rand() % 100;
@@ -308,7 +307,7 @@ int main() {
         while (getchar() != '\n'); // clear input buffer
     }
 
-    printf("Enter number of items to produce/consume: ");
+    printf("Enter number of items to be consumed (to bound the simulation): ");
     while (scanf("%d", &simulation_count) != 1 || simulation_count <= 0) {
         printf("Invalid input. Enter a positive integer for number of items: ");
         while (getchar() != '\n'); // clear input buffer
@@ -325,17 +324,17 @@ int main() {
 
     pthread_t prod_threads[NUM_PRODUCERS], cons_threads[NUM_CONSUMERS];
     
-    for (int i = 1; i <= NUM_PRODUCERS; i++)
-        pthread_create(&prod_threads[i], NULL, supplier, (void*)(long)i);
+    for (int i = 0; i < NUM_PRODUCERS; i++)
+        pthread_create(&prod_threads[i], NULL, supplier, (void*)(long)(i+1));
 
-    for (int i = 1; i <= NUM_CONSUMERS; i++)
-        pthread_create(&cons_threads[i], NULL, retailer, (void*)(long)i);
-    
-    for (int i = 1; i <= NUM_PRODUCERS; i++)
-        pthread_join(prod_threads[i - 1], NULL);
+    for (int i = 0; i < NUM_CONSUMERS; i++)
+        pthread_create(&cons_threads[i], NULL, retailer, (void*)(long)(i+1));
 
-    for (int i = 1; i <= NUM_CONSUMERS; i++)
-        pthread_join(cons_threads[i - 1], NULL);
+    for (int i = 0; i < NUM_PRODUCERS; i++)
+        pthread_join(prod_threads[i], NULL);
+
+    for (int i = 0; i < NUM_CONSUMERS; i++)
+        pthread_join(cons_threads[i], NULL);
 
     sem_destroy(&empty);
     sem_destroy(&full);

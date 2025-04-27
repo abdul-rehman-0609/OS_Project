@@ -13,6 +13,7 @@
 #define MAX_PRIORITY 2
 
 char last_action[100] = "Waiting...";
+volatile sig_atomic_t simulation_running = 1;
 
 // Thresholds for generating stock alerts
 #define LOW_STOCK_THRESHOLD 1
@@ -104,10 +105,13 @@ void print_final_statistics() {
 
 // Signal handler for Ctrl+C
 void sigint_handler(int sig) {
- 
+
+    simulation_running = 0;
+    endwin(); // End ncurses mode
+
+    printf("\n\nSignal handler triggered!\n");
     printf("\nCaught signal %d (Ctrl+C). Exiting simulation...\n", sig);
     fflush(stdout);
-    sleep(1); // Give time for logs to flush
 
     // Set simulation_count to 0 to signal threads to exit
     pthread_mutex_lock(&mutex);
@@ -117,10 +121,10 @@ void sigint_handler(int sig) {
     // Unblock any threads waiting on semaphores
     for (int i = 0; i < NUM_PRODUCERS; i++) sem_post(&empty);
     for (int i = 0; i < NUM_CONSUMERS; i++) sem_post(&full);
+
     print_final_statistics();
     close_log_file(); 
 
-    endwin(); // End ncurses mode
     exit(0);
 }
 
@@ -187,7 +191,9 @@ void* supplier(void* arg) {
         add_product(item, priority);
         //log_event("Produced", id, item, priority ? "(PRIORITY)" : "");
         snprintf(last_action, sizeof(last_action), "Supplier %d produced item %d %s", id, item, priority ? "(PRIORITY)" : "");
-refresh_screen();
+        if (simulation_running) {
+            refresh_screen();
+        }
 
         log_event_file("Produced", id, item, priority ? "(PRIORITY)" : "");
 
@@ -225,7 +231,9 @@ void* retailer(void* arg) {
         //log_event("Consumed", id, item, "");
         snprintf(last_action, sizeof(last_action), "Consumer %d consumed item %d", id, item);
         snprintf(last_action, sizeof(last_action), "Retailer %d consumed item %d", id, item);
-refresh_screen();
+        if (simulation_running) {
+            refresh_screen();
+        }
 
         log_event_file("Consumed", id, item, "");
 

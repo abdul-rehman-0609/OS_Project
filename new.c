@@ -6,9 +6,13 @@
 #include <time.h>
 #include <string.h>
 #include <signal.h>
+#include <sys/types.h>
+#include <ncurses.h>
 
 #define BUFFER_SIZE 10
 #define MAX_PRIORITY 2
+
+char last_action[100] = "Waiting...";
 
 // Thresholds for generating stock alerts
 #define LOW_STOCK_THRESHOLD 1
@@ -32,10 +36,12 @@ sem_t empty, full;
 // Mutex for critical section to prevent race conditions
 pthread_mutex_t mutex;
 
-int stop_simulation = 0; // 0 means running, 1 means stop
+int simulation_count;
+int total_produced = 0;
+int total_consumed = 0;
 
 // Function prototypes
-void handle_sigint(int sig);
+void refresh_screen();
 void log_event(const char* event, int id, int item, const char* type);
 void log_stock_status(int normal_count, int urgent_count);
 void log_command(const char* command, int item, int priority);
@@ -47,69 +53,154 @@ void stock_alert();
 void add_product(int item, int priority);
 int extract_product();
 void print_stock_status();
-void* user_input(void* arg);
+void print_final_statistics();  
+void open_log_file();
+void close_log_file();
+void log_event_file(const char* event, int id, int item, const char* type);
+void sigint_handler(int sig);
+
+void refresh_screen() {
+    clear();
+    box(stdscr, 0, 0);
+
+    mvprintw(1, 2, "Warehouse Simulation (Suppliers: %d, Retailers: %d)", NUM_PRODUCERS, NUM_CONSUMERS);
+    mvprintw(3, 2, "Normal Items in Buffer: %d", (in - out + BUFFER_SIZE) % BUFFER_SIZE);
+    mvprintw(4, 2, "Urgent Items in Buffer: %d", urgent_count);
+    mvprintw(6, 2, "Total Produced: %d", total_produced);
+    mvprintw(7, 2, "Total Consumed: %d", total_consumed);
+    mvprintw(9, 2, "Last Action: %s", last_action);
+
+    int normal_count = (in - out + BUFFER_SIZE) % BUFFER_SIZE;
+    int total_stock = normal_count + urgent_count;
+
+    if (total_stock <= LOW_STOCK_THRESHOLD) {
+        mvprintw(11, 2, "[STOCK ALERT] LOW stock: %d items!", total_stock);
+    } else if (total_stock >= HIGH_STOCK_THRESHOLD) {
+        mvprintw(11, 2, "[STOCK ALERT] HIGH stock: %d items!", total_stock);
+    }
+
+    // Final statistics (can be shown at the bottom)
+    mvprintw(13, 2, "Final statistics:");
+    mvprintw(14, 2, "Total Produced: %d, Total Consumed: %d", total_produced, total_consumed);
+    mvprintw(15, 2, "Final stock status: Normal items = %d, Urgent items = %d",
+             (in - out + BUFFER_SIZE) % BUFFER_SIZE, urgent_count);
+
+    refresh();
+}
+
+void print_final_statistics() {
+    printf("\nSimulation ended.\n");
+    printf("Final statistics:\n");
+    printf("Total Produced: %d, Total Consumed: %d\n", total_produced, total_consumed);
+    printf("Final stock status: Normal items = %d, Urgent items = %d\n", (in - out + BUFFER_SIZE) % BUFFER_SIZE, urgent_count);
+
+    printf("Exiting program...\n");
+    fflush(stdout);
+    sleep(1); // Give time for logs to flush
+    printf("Goodbye!\n");
+    fflush(stdout);
+    sleep(1); // Give time for logs to flush
+}
 
 // Signal handler for Ctrl+C
-void handle_sigint(int sig) {
+void sigint_handler(int sig) {
+ 
     printf("\nCaught signal %d (Ctrl+C). Exiting simulation...\n", sig);
-    stop_simulation = 1;
+    fflush(stdout);
+    sleep(1); // Give time for logs to flush
+
+    // Set simulation_count to 0 to signal threads to exit
+    pthread_mutex_lock(&mutex);
+    simulation_count = 0;
+    pthread_mutex_unlock(&mutex);
 
     // Unblock any threads waiting on semaphores
     for (int i = 0; i < NUM_PRODUCERS; i++) sem_post(&empty);
     for (int i = 0; i < NUM_CONSUMERS; i++) sem_post(&full);
+    print_final_statistics();
+    close_log_file(); 
+
+    endwin(); // End ncurses mode
+    exit(0);
 }
 
 // Logging functions
 void log_event(const char* event, int id, int item, const char* type) {
-    printf("[LOG] %s: Thread %d %s item %d\n", event, id, type, item);
+    //printf("[LOG] %s: Thread %d %s item -> %d\n", event, id, type, item);
 }
 
 void log_stock_status(int normal_count, int urgent_count) {
-    printf("[LOG] Current stock: Normal items = %d, Urgent items = %d\n", normal_count, urgent_count);
+    //printf("[LOG] Current stock: Normal items = %d, Urgent items = %d\n", normal_count, urgent_count);
 }
 
 void log_command(const char* command, int item, int priority) {
-    printf("[LOG] Command: %s item %d with priority %d\n", command, item, priority);
+    //printf("[LOG] Command: %s item %d with priority %d\n", command, item, priority);
 }
 
 void log_error(const char* error) {
     printf("[ERROR] %s\n", error);
 }
 
-int total_produced = 0, total_consumed = 0;
-
 void update_statistics(int produced, int consumed) {
     total_produced += produced;
     total_consumed += consumed;
-    printf("[STATS] Total Produced: %d, Total Consumed: %d\n", total_produced, total_consumed);
+}
+
+FILE* log_fp = NULL;
+
+void open_log_file() {
+    log_fp = fopen("warehouse.log", "a");
+    if (!log_fp) {
+        printf("[ERROR] Could not open log file!\n");
+        exit(1);
+    }
+}
+
+void close_log_file() {
+    if (log_fp) fclose(log_fp);
+}
+
+void log_event_file(const char* event, int id, int item, const char* type) {
+    if (!log_fp) return;
+
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+
+    fprintf(log_fp, "[%04d-%02d-%02d %02d:%02d:%02d] [LOG] %s: Thread %d %s item %d\n",
+        t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+        t->tm_hour, t->tm_min, t->tm_sec,
+        event, id, type, item);
+    fflush(log_fp);
 }
 
 // Producer thread function
 void* supplier(void* arg) {
     int id = (long)arg;
-    while (!stop_simulation) {
+    while (simulation_count > 0) {
         int item = rand() % 100;
         int priority = rand() % MAX_PRIORITY;
         sleep(1);
 
-        if (stop_simulation) break;
         sem_wait(&empty);
-
         pthread_mutex_lock(&mutex);
-        if (stop_simulation) {
-            pthread_mutex_unlock(&mutex);
-            sem_post(&empty);
-            break;
-        }
 
         add_product(item, priority);
-        log_event("Produced", id, item, priority ? "(PRIORITY)" : "");
+        //log_event("Produced", id, item, priority ? "(PRIORITY)" : "");
+        snprintf(last_action, sizeof(last_action), "Supplier %d produced item %d %s", id, item, priority ? "(PRIORITY)" : "");
+refresh_screen();
+
+        log_event_file("Produced", id, item, priority ? "(PRIORITY)" : "");
+
         update_statistics(1, 0);
-        printf("Producer %d produced %d %s\n", id, item, priority ? "(PRIORITY)" : "");
+        //printf("Producer %d produced %d %s\n", id, item, priority ? "(PRIORITY)" : "");
         stock_alert();
+
+        simulation_count--;
 
         pthread_mutex_unlock(&mutex);
         sem_post(&full);
+
+        sleep(2); // Simulate time taken to produce
     }
     return NULL;
 }
@@ -117,26 +208,42 @@ void* supplier(void* arg) {
 // Consumer thread function
 void* retailer(void* arg) {
     int id = (long)arg;
-    while (!stop_simulation) {
-        if (stop_simulation) break;
+    while (simulation_count > 0) {
         sem_wait(&full);
 
         pthread_mutex_lock(&mutex);
-        if (stop_simulation) {
+        if (in == out && urgent_count == 0) {
             pthread_mutex_unlock(&mutex);
             sem_post(&full);
-            break;
+            continue; // No items to consume
+        }
+        // Simulate time taken to consume
+        sleep(1);
+
+        // Extract product from buffer
+        int item = extract_product();
+        //log_event("Consumed", id, item, "");
+        snprintf(last_action, sizeof(last_action), "Consumer %d consumed item %d", id, item);
+        snprintf(last_action, sizeof(last_action), "Retailer %d consumed item %d", id, item);
+refresh_screen();
+
+        log_event_file("Consumed", id, item, "");
+
+        if (item == -1) {
+            pthread_mutex_unlock(&mutex);
+            sem_post(&full);
+            continue; // No items to consume
         }
 
-        int item = extract_product();
-        log_event("Consumed", id, item, "");
         update_statistics(0, 1);
-        printf("Consumer %d consumed %d\n", id, item);
+        //printf("Consumer %d consumed %d\n", id, item);
         stock_alert();
 
+        simulation_count--;
         pthread_mutex_unlock(&mutex);
         sem_post(&empty);
-        sleep(2);
+        
+        sleep(3);
     }
     return NULL;
 }
@@ -183,9 +290,9 @@ void stock_alert() {
     int total_stock = normal_count + urgent_count;
 
     if (total_stock <= LOW_STOCK_THRESHOLD) {
-        printf("[STOCK ALERT] LOW stock: %d items in warehouse!\n", total_stock);
+        //printf("[STOCK ALERT] LOW stock: %d items in warehouse!\n", total_stock);
     } else if (total_stock >= HIGH_STOCK_THRESHOLD) {
-        printf("[STOCK ALERT] HIGH stock: %d items in warehouse!\n", total_stock);
+        //printf("[STOCK ALERT] HIGH stock: %d items in warehouse!\n", total_stock);
     }
     log_stock_status(normal_count, urgent_count);
 }
@@ -199,7 +306,17 @@ void print_stock_status() {
 // Main function
 int main() {
     srand(time(NULL));
-    signal(SIGINT, handle_sigint);
+    if (signal(SIGINT, sigint_handler) == SIG_ERR) {
+        printf("Error setting up signal handler for SIGINT\n");
+        return 1;
+    }
+    open_log_file();
+    
+
+    printf("Welcome to the Warehouse Simulation!\n");
+    sleep(2);
+    printf("This simulation will run until you press Ctrl+C or your simulation counter is ended.\n");
+    sleep(1);
 
     printf("Enter number of suppliers: ");
     while (scanf("%d", &NUM_PRODUCERS) != 1 || NUM_PRODUCERS <= 0) {
@@ -213,88 +330,40 @@ int main() {
         while (getchar() != '\n'); // clear input buffer
     }
 
+    printf("Enter number of items to produce/consume: ");
+    while (scanf("%d", &simulation_count) != 1 || simulation_count <= 0) {
+        printf("Invalid input. Enter a positive integer for number of items: ");
+        while (getchar() != '\n'); // clear input buffer
+    }
+
+    initscr();      // Start ncurses mode
+    cbreak();       // Disable line buffering
+    noecho();       // Don't echo input
+    curs_set(FALSE);// Hide the cursor
+
     sem_init(&empty, 0, BUFFER_SIZE);
     sem_init(&full, 0, 0);
     pthread_mutex_init(&mutex, NULL);
 
-    pthread_t prod_threads[NUM_PRODUCERS], cons_threads[NUM_CONSUMERS], user_thread;
+    pthread_t prod_threads[NUM_PRODUCERS], cons_threads[NUM_CONSUMERS];
     
-    for (int i = 0; i < NUM_PRODUCERS; i++)
+    for (int i = 1; i <= NUM_PRODUCERS; i++)
         pthread_create(&prod_threads[i], NULL, supplier, (void*)(long)i);
 
-    for (int i = 0; i < NUM_CONSUMERS; i++)
+    for (int i = 1; i <= NUM_CONSUMERS; i++)
         pthread_create(&cons_threads[i], NULL, retailer, (void*)(long)i);
+    
+    for (int i = 1; i <= NUM_PRODUCERS; i++)
+        pthread_join(prod_threads[i - 1], NULL);
 
-    //pthread_create(&user_thread, NULL, user_input, NULL);
-
-    for (int i = 0; i < NUM_PRODUCERS; i++)
-        pthread_join(prod_threads[i], NULL);
-
-    for (int i = 0; i < NUM_CONSUMERS; i++)
-        pthread_join(cons_threads[i], NULL);
-
-    //pthread_join(user_thread, NULL);
+    for (int i = 1; i <= NUM_CONSUMERS; i++)
+        pthread_join(cons_threads[i - 1], NULL);
 
     sem_destroy(&empty);
     sem_destroy(&full);
     pthread_mutex_destroy(&mutex);
-    
+    close_log_file();
+    endwin(); // End ncurses mode
+    print_final_statistics();
     return 0;
 }
-
-// User input thread function
-/*void* user_input(void* arg) {
-    char command[10];
-    while (!stop_simulation) {
-        printf("\nEnter command: [add, remove, status, exit] ");
-        if (fgets(command, sizeof(command), stdin) == NULL) {
-            if (stop_simulation) break;
-            continue;
-        }
-
-        command[strcspn(command, "\n")] = '\0';
-        if (stop_simulation) break;
-
-        if (strcmp(command, "status") == 0) {
-            pthread_mutex_lock(&mutex);
-            print_stock_status();
-            pthread_mutex_unlock(&mutex);
-        } else if (strcmp(command, "add") == 0) {
-            char item_input[10], priority_input[10];
-            int item, priority;
-
-            printf("Enter item to add: ");
-            if (fgets(item_input, sizeof(item_input), stdin) == NULL || stop_simulation) break;
-            item = atoi(item_input);
-
-            printf("Enter priority (0 for normal, 1 for urgent): ");
-            if (fgets(priority_input, sizeof(priority_input), stdin) == NULL || stop_simulation) break;
-            priority = atoi(priority_input);
-
-            pthread_mutex_lock(&mutex);
-            add_product(item, priority);
-            log_command("add", item, priority);
-            stock_alert();
-            pthread_mutex_unlock(&mutex);
-        } else if (strcmp(command, "remove") == 0) {
-            pthread_mutex_lock(&mutex);
-            if ((in - out + BUFFER_SIZE) % BUFFER_SIZE > 0 || urgent_count > 0) {
-                int item = extract_product();
-                log_command("remove", item, 0);
-                stock_alert();
-            } else {
-                printf("No items to remove!\n");
-            }
-            pthread_mutex_unlock(&mutex);
-        } else if (strcmp(command, "exit") == 0) {
-            printf("Exiting simulation...\n");
-            stop_simulation = 1;
-            for (int i = 0; i < NUM_PRODUCERS; i++) sem_post(&empty);
-            for (int i = 0; i < NUM_CONSUMERS; i++) sem_post(&full);
-            break;
-        } else {
-            printf("Unknown command. Try again.\n");
-        }
-    }
-    return NULL;
-}*/

@@ -79,10 +79,6 @@ void refresh_screen() {
     } else if (total_stock >= HIGH_STOCK_THRESHOLD) {
         mvprintw(11, 2, "[STOCK ALERT] HIGH stock: %d items!", total_stock);
     }
-
-    mvprintw(13, 2, "Current stock status: Normal items = %d, Urgent items = %d",
-             (in - out + BUFFER_SIZE) % BUFFER_SIZE, urgent_count);
-
     refresh();
 }
 

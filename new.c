@@ -1,3 +1,8 @@
+//STEP 1: Please run: " gcc new.c -o output -lpthread -lncurses " on terminal.
+//STEP 2: Create a new file in your directory where source code is placed using: " touch warehouse.log " use the provided file name only as it is used in the code. 
+//STEP 3: For output, please run: " ./output " on terminal.
+//STEP 4: Press " Ctrl + C " for forced termination else wait for the simulation to be ended automatically.
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
